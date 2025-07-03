@@ -61,7 +61,7 @@ static CGEventRef _callback(CGEventTapProxy proxy,
         MouseTap *const tap=(__bridge MouseTap *)userInfo;
         const uint64_t time=_nanoseconds();
         NSEvent *const event=[NSEvent eventWithCGEvent:eventRef];
-        [(AppDelegate *)[NSApp delegate] refreshPermissions];
+        // [(AppDelegate *)[NSApp delegate] refreshPermissions]; // 此调用在高频事件流中存在性能风险，是导致不稳定的重要原因，予以移除。
 
         if (type==(CGEventType)NSEventTypeGesture)
         {
@@ -121,12 +121,17 @@ static CGEventRef _callback(CGEventTapProxy proxy,
             // get and reset fingers touching
             const NSUInteger touching=tap->touching;
             [tap->logger logUnsignedInteger:touching forKey:@"touching"];
-            tap->touching=0;
+            // tap->touching=0; // 过早重置touching状态是导致设备识别错误的核心原因。
 
             // get phase
             const ScrollPhase phase=_momentumPhaseForEvent(eventRef);
             [tap->logger logPhase:phase forKey:@"phase"];
             
+            // 优化重置时机，仅在滚动手势明确结束，或在一段时间无触摸后才重置状态。
+            if (phase == ScrollPhaseEnd || (time - tap->lastTouchTime) > (MILLISECOND * 500)) {
+                tap->touching = 0;
+            }
+
             // work out the event source
             const ScrollEventSource lastSource=tap->lastSource;
             const ScrollEventSource source=(^{
